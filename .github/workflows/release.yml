@@ -5,7 +5,7 @@ on:
     branches:
       - "master"
       - "ci"
-      - "[0-9]+.[0-9]+.[0-9x]+*"
+      - "[0-9]+.[0-9x]+*"
     paths:
       - "httptools/_version.py"
 
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Validate release PR
-      uses: edgedb/action-release/validate-pr@bae6b9134e872166b43d218dd79397c851c41c9a
+      uses: edgedb/action-release/validate-pr@master
       id: checkver
       with:
         require_team: Release Managers
@@ -37,9 +37,9 @@ jobs:
         mkdir -p dist/
         echo "${VERSION}" > dist/VERSION
 
-    - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+    - uses: actions/upload-artifact@v2
       with:
-        name: dist-version
+        name: dist
         path: dist/
 
   build-sdist:
@@ -47,21 +47,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
+    - uses: actions/checkout@v6.0.2
       with:
         fetch-depth: 50
         submodules: true
 
-    - name: Install the latest version of uv
-      uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c  # 7.0.0
+    - name: Set up Python
+      uses: actions/setup-python@v2
 
     - name: Build source distribution
       run: |
-        uv build --sdist
+        python -m pip install -U setuptools wheel pip
+        python setup.py sdist
 
-    - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+    - uses: actions/upload-artifact@v2
       with:
-        name: dist-sdist
+        name: dist
         path: dist/*.tar.*
 
   build-wheels:
@@ -72,18 +73,23 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         cibw_arch: ["auto64", "aarch64", "universal2"]
         cibw_python:
-          - "cp39"
-          - "cp310"
-          - "cp311"
-          - "cp312"
-          - "cp313"
-          - "cp314"
-          - "cp314t"
+          - "cp36-*"
+          - "cp37-*"
+          - "cp38-*"
+          - "cp39-*"
+          - "cp310-*"
+          - "cp311-*"
         exclude:
           - os: ubuntu-latest
             cibw_arch: universal2
           - os: macos-latest
             cibw_arch: aarch64
+          - os: macos-latest
+            cibw_python: "cp36-*"
+            cibw_arch: universal2
+          - os: macos-latest
+            cibw_python: "cp37-*"
+            cibw_arch: universal2
           - os: windows-latest
             cibw_arch: universal2
           - os: windows-latest
@@ -97,30 +103,30 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: 1
 
     steps:
-    - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
+    - uses: actions/checkout@v6.0.2
       with:
         fetch-depth: 50
         submodules: true
 
     - name: Set up QEMU
       if: matrix.os == 'ubuntu-latest' && matrix.cibw_arch == 'aarch64'
-      uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf  # v3.2.0
+      uses: docker/setup-qemu-action@v1
       with:
         platforms: arm64
 
-    - uses: pypa/cibuildwheel@7c619efba910c04005a835b110b057fc28fd6e93  # v3.2.0
+    - uses: pypa/cibuildwheel@v2.9.0
       env:
         CIBW_BUILD_VERBOSITY: 1
-        CIBW_BUILD: ${{ matrix.cibw_python }}-*
+        CIBW_BUILD: ${{ matrix.cibw_python }}
         CIBW_ARCHS: ${{ matrix.cibw_arch }}
         CIBW_TEST_EXTRAS: "test"
         CIBW_TEST_COMMAND: "python {project}/tests/__init__.py"
         CIBW_TEST_COMMAND_WINDOWS: "python {project}\\tests\\__init__.py"
         CIBW_TEST_SKIP: "*universal2:arm64"
 
-    - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+    - uses: actions/upload-artifact@v2
       with:
-        name: dist-${{ matrix.os }}-${{ matrix.cibw_arch }}-${{ matrix.cibw_python }}
+        name: dist
         path: wheelhouse/*.whl
 
   publish:
@@ -128,15 +134,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
+    - uses: actions/checkout@v6.0.2
       with:
         fetch-depth: 5
         submodules: false
 
-    - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+    - uses: actions/download-artifact@v2
       with:
-        pattern: dist-*
-        merge-multiple: true
+        name: dist
         path: dist/
 
     - name: Extract Release Version
@@ -147,7 +152,7 @@ jobs:
         rm dist/VERSION
 
     - name: Merge and tag the PR
-      uses: edgedb/action-release/merge@bae6b9134e872166b43d218dd79397c851c41c9a
+      uses: edgedb/action-release/merge@master
       with:
         github_token: ${{ secrets.RELEASE_BOT_GITHUB_TOKEN }}
         ssh_key: ${{ secrets.RELEASE_BOT_SSH_KEY }}
@@ -156,7 +161,7 @@ jobs:
         tag_name: v${{ steps.relver.outputs.version }}
 
     - name: Publish Github Release
-      uses: elprans/gh-action-create-release@5f9abb8f0677196a76ea77e64341fa8ca31dad4f
+      uses: elprans/gh-action-create-release@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -170,7 +175,7 @@ jobs:
         ls -al dist/
 
     - name: Upload to PyPI
-      uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e  # v1.13.0
+      uses: pypa/gh-action-pypi-publish@master
       with:
         user: __token__
         password: ${{ secrets.PYPI_TOKEN }}
